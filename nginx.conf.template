@@ -1,0 +1,93 @@
+user www-data;
+worker_processes auto;
+pid /run/nginx.pid;
+include /etc/nginx/modules-enabled/*.conf;
+
+events {
+	worker_connections 768;
+	# multi_accept on;
+}
+
+rtmp {
+	server {
+		listen 1935;
+		chunk_size 4096;
+		ping 30s;
+
+		application live {
+			live on;
+			on_publish http://localhost:8080/auth.php;
+			#meta copy;
+			#wait_key on;
+			#wait_video on;
+			#idle_streams off;
+			# Dash settings and pushing towards repeaters
+			dash on;
+			#dash_nested on;
+			#dash_playlist_length 20;
+			dash_cleanup on;
+			dash_path /var/www/client/streams;
+			dash_fragment 15s;
+			# disable consuming the stream from nginx as rtmp
+			deny play all;
+		}
+	}
+}
+
+http {
+	sendfile on;
+	tcp_nopush on;
+	tcp_nodelay on;
+	keepalive_timeout 65;
+	types_hash_max_size 2048;
+	server_tokens off;
+	include /etc/nginx/mime.types;
+	default_type application/octet-stream;
+	ssl_protocols TLSv1 TLSv1.1 TLSv1.2; # Dropping SSLv3, ref: POODLE
+	ssl_prefer_server_ciphers on;
+
+	access_log /var/log/nginx/access.log;
+	error_log /var/log/nginx/error.log;
+	gzip on;
+	include /etc/nginx/conf.d/*.conf;
+
+	# Client / Video Viewer
+	server {
+		listen	   80 default_server;
+		server_name  SERVER_NAME;
+		add_header 'Access-Control-Allow-Origin' '*';
+		location / {
+			index  index.html;
+			root /var/www/client/public;
+			try_files $uri $uri/ /index.html;
+		}
+		location /streams {
+			types {
+					application/dash+xml mpd;
+					video/mp4 m4v;
+					audio/mp4 m4a;
+			}
+			rewrite ^/streams(/.*)$ $1 break;
+			add_header 'Access-Control-Allow-Origin' '*';
+			index index.mpd;
+			root /var/www/client/streams;
+		}
+	}
+
+	# Authentication Server
+	server {
+		listen 127.0.0.1:8080;
+		root /var/www/auth/public;
+		index index.php index.html index.htm;
+		server_name _;
+		add_header 'Access-Control-Allow-Origin' '*';
+		add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS';
+		location / {
+			try_files $uri $uri/ =404;
+		}
+		location ~ \.php$ {
+			include snippets/fastcgi-php.conf;
+			fastcgi_pass unix:/var/run/php/php7.2-fpm.sock;
+		}
+	}
+}
