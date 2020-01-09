@@ -1,2 +1,2 @@
-!db/example.json
 db/*.json
+!db/example.json
